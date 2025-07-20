@@ -61,39 +61,45 @@ A comprehensive projection template for Meta Ads designed for performance market
 
 4. **Access the dashboard**
    - Open your browser and navigate to `http://localhost:8501`
-   - The application will automatically load with sample data
+   - Choose to upload your CSV file or use sample data
 
 ## 📋 How to Use
 
-### 1. Dashboard Overview
+### 1. Data Input
+- **Upload CSV File**: Upload your own Meta Ads data CSV file
+- **Use Sample Data**: Use the built-in sample data for demonstration
+- **Required CSV columns**: date, spend, impressions, clicks, conversions, revenue
+- **Optional columns**: ctr, cpc, conversion_rate, roas, cpa (auto-calculated if missing)
+
+### 2. Dashboard Overview
 - View current performance metrics in the **📈 Dashboard** tab
 - Monitor key KPIs: Spend, Revenue, ROAS, and CPA
 - Analyze recent performance trends
 
-### 2. Setting Up Projections
+### 3. Setting Up Projections
 - Use the **sidebar controls** to configure projections:
   - **Days to Project**: 7-90 days
   - **Budget Change**: -50% to +100%
   - **Target Improvements**: CTR, Conversion Rate, CPC, AOV
 
-### 3. Analyzing Projections
+### 4. Analyzing Projections
 - Navigate to **🔮 Projections** tab
 - Review projected revenue, spend, and ROAS
 - Examine financial and volume metrics
 
-### 4. AI Recommendations
+### 5. AI Recommendations
 - Check **🤖 AI Insights** tab for:
   - Priority-ranked performance issues
   - Specific action items for improvement
   - Budget scaling recommendations
 
-### 5. Historical Analysis
+### 6. Historical Analysis
 - Use **📊 Historical Analysis** tab to:
   - Identify day-of-week patterns
   - Analyze monthly trends
   - Understand metric correlations
 
-### 6. Scenario Planning
+### 7. Scenario Planning
 - Explore **⚙️ Scenario Planning** tab to:
   - Compare different growth strategies
   - Analyze ROI across scenarios

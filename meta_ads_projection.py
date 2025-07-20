@@ -449,6 +449,143 @@ ai_assistant = initialize_ai_assistant()
 def main():
     st.markdown('<h1 class="main-header">📊 Meta Ads Performance Projections & AI Assistant</h1>', unsafe_allow_html=True)
     
+    # File upload section
+    st.header("📁 Data Input")
+    
+    # Data source selection
+    data_source = st.radio(
+        "Choose your data source:",
+        ["Upload CSV File", "Use Sample Data"],
+        horizontal=True
+    )
+    
+    projector = None
+    
+    if data_source == "Upload CSV File":
+        st.subheader("Upload Your Meta Ads CSV File")
+        
+        # File upload widget
+        uploaded_file = st.file_uploader(
+            "Choose a CSV file",
+            type=['csv'],
+            help="Upload your Meta Ads data CSV file. Required columns: date, spend, impressions, clicks, conversions, revenue"
+        )
+        
+        if uploaded_file is not None:
+            # Initialize projector without sample data
+            projector = MetaAdsProjector(data_source='csv')
+            
+            # Load the CSV data
+            if projector.load_csv_data(uploaded_file):
+                st.success("✅ Data loaded successfully! You can now use all projection features.")
+            else:
+                st.error("❌ Failed to load data. Please check your CSV file format.")
+                return
+        else:
+            st.info("👆 Please upload a CSV file to continue with your Meta Ads data")
+            st.markdown("### 📋 Required CSV Format:")
+            st.markdown("""
+            Your CSV file should contain the following columns:
+            - **date**: Date in YYYY-MM-DD format
+            - **spend**: Ad spend amount
+            - **impressions**: Number of impressions
+            - **clicks**: Number of clicks
+            - **conversions**: Number of conversions
+            - **revenue**: Revenue generated
+            
+            Optional columns (will be calculated if missing):
+            - **ctr**: Click-through rate
+            - **cpc**: Cost per click
+            - **conversion_rate**: Conversion rate
+            - **roas**: Return on ad spend
+            - **cpa**: Cost per acquisition
+            """)
+            
+            # Show sample CSV format
+            sample_data = {
+                'date': ['2024-01-01', '2024-01-02', '2024-01-03'],
+                'spend': [1000.00, 1200.00, 950.00],
+                'impressions': [50000, 55000, 48000],
+                'clicks': [1000, 1150, 920],
+                'conversions': [35, 42, 31],
+                'revenue': [3500.00, 4200.00, 3100.00]
+            }
+            sample_df = pd.DataFrame(sample_data)
+            st.markdown("### 📊 Sample CSV Format:")
+            st.dataframe(sample_df, use_container_width=True)
+            
+            # Provide download link for sample CSV
+            try:
+                with open('sample_meta_ads_data.csv', 'r') as file:
+                    csv_data = file.read()
+                st.download_button(
+                    label="📥 Download Sample CSV Template",
+                    data=csv_data,
+                    file_name="meta_ads_template.csv",
+                    mime="text/csv",
+                    help="Download this template and fill it with your Meta Ads data"
+                )
+            except FileNotFoundError:
+                # Create sample CSV data inline if file doesn't exist
+                sample_csv = """date,spend,impressions,clicks,conversions,revenue
+2024-01-01,1000.00,50000,1000,35,3500.00
+2024-01-02,1200.00,55000,1150,42,4200.00
+2024-01-03,950.00,48000,920,31,3100.00"""
+                st.download_button(
+                    label="📥 Download Sample CSV Template",
+                    data=sample_csv,
+                    file_name="meta_ads_template.csv",
+                    mime="text/csv",
+                    help="Download this template and fill it with your Meta Ads data"
+                )
+            
+            return
+    
+    else:  # Use Sample Data
+        st.info("📊 Using sample Meta Ads data for demonstration")
+        projector = MetaAdsProjector(data_source='sample')
+    
+    # Only proceed if we have a valid projector with data
+    if projector is None or projector.historical_data is None:
+        st.warning("⚠️ No data available. Please upload a CSV file or use sample data.")
+        return
+    
+    # Display data summary
+    st.subheader("📊 Data Summary")
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Total Records", len(projector.historical_data))
+    with col2:
+        st.metric("Date Range", f"{(projector.historical_data['date'].max() - projector.historical_data['date'].min()).days} days")
+    with col3:
+        st.metric("Total Spend", f"${projector.historical_data['spend'].sum():,.2f}")
+    with col4:
+        st.metric("Total Revenue", f"${projector.historical_data['revenue'].sum():,.2f}")
+    
+    # Data preview
+    with st.expander("📋 View Data Preview"):
+        st.dataframe(projector.historical_data.head(10), use_container_width=True)
+        
+        # Show data quality indicators
+        st.subheader("📈 Data Quality Indicators")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            avg_roas = projector.historical_data['roas'].mean()
+            st.metric("Average ROAS", f"{avg_roas:.2f}", 
+                     delta="Good" if avg_roas >= 3.0 else "Needs Improvement")
+        
+        with col2:
+            avg_ctr = projector.historical_data['ctr'].mean()
+            st.metric("Average CTR", f"{avg_ctr:.2f}%", 
+                     delta="Good" if avg_ctr >= 1.5 else "Needs Improvement")
+        
+        with col3:
+            avg_conv_rate = projector.historical_data['conversion_rate'].mean()
+            st.metric("Average Conv. Rate", f"{avg_conv_rate:.2f}%", 
+                     delta="Good" if avg_conv_rate >= 3.0 else "Needs Improvement")
+    
     # Sidebar configuration
     st.sidebar.header("🎯 Projection Settings")
     
