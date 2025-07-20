@@ -73,49 +73,103 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 class MetaAdsProjector:
-    def __init__(self, data_source='sample'):
-        self.data_source = data_source
+    def __init__(self):
         self.historical_data = None
-        if data_source == 'sample':
-            self.initialize_sample_data()
+        self.available_metrics = []
+        self.required_columns = ['date']
+        
+    def detect_and_validate_columns(self, df):
+        """Dynamically detect available metrics in the CSV file"""
+        available_columns = df.columns.tolist()
+        
+        # Essential column
+        if 'date' not in available_columns:
+            return False, ["date column is required"]
+        
+        # Detect available metrics
+        metric_mapping = {
+            'spend': ['spend', 'cost', 'amount_spent', 'ad_spend'],
+            'impressions': ['impressions', 'impr', 'views'],
+            'clicks': ['clicks', 'click', 'link_clicks'],
+            'conversions': ['conversions', 'conv', 'purchases', 'results'],
+            'revenue': ['revenue', 'purchase_value', 'conversion_value', 'sales'],
+            'ctr': ['ctr', 'click_through_rate', 'clickthrough_rate'],
+            'cpc': ['cpc', 'cost_per_click', 'avg_cpc'],
+            'cpm': ['cpm', 'cost_per_mille', 'cost_per_1000_impressions'],
+            'conversion_rate': ['conversion_rate', 'conv_rate', 'cvr'],
+            'roas': ['roas', 'return_on_ad_spend', 'return_on_ads'],
+            'cpa': ['cpa', 'cost_per_acquisition', 'cost_per_conversion'],
+            'reach': ['reach', 'unique_reach'],
+            'frequency': ['frequency', 'avg_frequency']
+        }
+        
+        detected_metrics = {}
+        for metric, possible_names in metric_mapping.items():
+            for col_name in available_columns:
+                if col_name.lower() in [name.lower() for name in possible_names]:
+                    detected_metrics[metric] = col_name
+                    break
+        
+        self.available_metrics = list(detected_metrics.keys())
+        return True, detected_metrics
+    
+    def calculate_derived_metrics(self, df, detected_metrics):
+        """Calculate missing metrics based on available data"""
+        # Standardize column names
+        for metric, col_name in detected_metrics.items():
+            if col_name != metric:
+                df[metric] = df[col_name]
+        
+        # Calculate derived metrics if base metrics are available
+        if 'impressions' in detected_metrics and 'clicks' in detected_metrics and 'ctr' not in detected_metrics:
+            df['ctr'] = (df['clicks'] / df['impressions'].replace(0, np.nan) * 100).round(2)
+            self.available_metrics.append('ctr')
+        
+        if 'spend' in detected_metrics and 'clicks' in detected_metrics and 'cpc' not in detected_metrics:
+            df['cpc'] = (df['spend'] / df['clicks'].replace(0, np.nan)).round(2)
+            self.available_metrics.append('cpc')
+        
+        if 'spend' in detected_metrics and 'impressions' in detected_metrics and 'cpm' not in detected_metrics:
+            df['cpm'] = (df['spend'] / df['impressions'].replace(0, np.nan) * 1000).round(2)
+            self.available_metrics.append('cpm')
+        
+        if 'conversions' in detected_metrics and 'clicks' in detected_metrics and 'conversion_rate' not in detected_metrics:
+            df['conversion_rate'] = (df['conversions'] / df['clicks'].replace(0, np.nan) * 100).round(2)
+            self.available_metrics.append('conversion_rate')
+        
+        if 'revenue' in detected_metrics and 'spend' in detected_metrics and 'roas' not in detected_metrics:
+            df['roas'] = (df['revenue'] / df['spend'].replace(0, np.nan)).round(2)
+            self.available_metrics.append('roas')
+        
+        if 'spend' in detected_metrics and 'conversions' in detected_metrics and 'cpa' not in detected_metrics:
+            df['cpa'] = (df['spend'] / df['conversions'].replace(0, np.nan)).round(2)
+            self.available_metrics.append('cpa')
+        
+        # Clean infinite and NaN values
+        df = df.replace([np.inf, -np.inf], np.nan)
+        df = df.fillna(0)
+        
+        return df
         
     def load_csv_data(self, uploaded_file):
-        """Load Meta Ads data from uploaded CSV file"""
+        """Load and process Meta Ads data from uploaded CSV file"""
         try:
             # Read the CSV file
             df = pd.read_csv(uploaded_file)
             
-            # Validate required columns
-            required_columns = ['date', 'spend', 'impressions', 'clicks', 'conversions', 'revenue']
-            missing_columns = [col for col in required_columns if col not in df.columns]
+            # Detect and validate columns
+            is_valid, detected_metrics = self.detect_and_validate_columns(df)
             
-            if missing_columns:
-                st.error(f"Missing required columns: {missing_columns}")
-                st.info("Required columns: date, spend, impressions, clicks, conversions, revenue")
+            if not is_valid:
+                st.error(f"Invalid CSV format: {detected_metrics}")
+                st.info("Required: 'date' column. Recommended: spend, impressions, clicks, conversions, revenue")
                 return False
             
             # Convert date column to datetime
             df['date'] = pd.to_datetime(df['date'])
             
-            # Calculate derived metrics if not present
-            if 'ctr' not in df.columns:
-                df['ctr'] = (df['clicks'] / df['impressions'] * 100).round(2)
-            
-            if 'cpc' not in df.columns:
-                df['cpc'] = (df['spend'] / df['clicks']).round(2)
-                df['cpc'] = df['cpc'].replace([np.inf, -np.inf], 0)
-            
-            if 'conversion_rate' not in df.columns:
-                df['conversion_rate'] = (df['conversions'] / df['clicks'] * 100).round(2)
-                df['conversion_rate'] = df['conversion_rate'].replace([np.inf, -np.inf], 0)
-            
-            if 'roas' not in df.columns:
-                df['roas'] = (df['revenue'] / df['spend']).round(2)
-                df['roas'] = df['roas'].replace([np.inf, -np.inf], 0)
-            
-            if 'cpa' not in df.columns:
-                df['cpa'] = (df['spend'] / df['conversions']).round(2)
-                df['cpa'] = df['cpa'].replace([np.inf, -np.inf], 0)
+            # Calculate derived metrics
+            df = self.calculate_derived_metrics(df, detected_metrics)
             
             # Sort by date
             df = df.sort_values('date').reset_index(drop=True)
@@ -123,8 +177,9 @@ class MetaAdsProjector:
             # Store the processed data
             self.historical_data = df
             
-            st.success(f"✅ Successfully loaded {len(df)} rows of Meta Ads data!")
-            st.info(f"Date range: {df['date'].min().strftime('%Y-%m-%d')} to {df['date'].max().strftime('%Y-%m-%d')}")
+            st.success(f"✅ Successfully loaded {len(df)} rows of data!")
+            st.info(f"📊 Detected metrics: {', '.join(self.available_metrics)}")
+            st.info(f"📅 Date range: {df['date'].min().strftime('%Y-%m-%d')} to {df['date'].max().strftime('%Y-%m-%d')}")
             
             return True
             
@@ -132,84 +187,44 @@ class MetaAdsProjector:
             st.error(f"Error loading CSV file: {str(e)}")
             return False
     
-    def initialize_sample_data(self):
-        """Generate realistic Meta Ads sample data"""
-        np.random.seed(42)
-        dates = pd.date_range(start='2024-01-01', end='2024-12-31', freq='D')
-        
-        # Generate realistic ad metrics
-        data = []
-        for i, date in enumerate(dates):
-            # Simulate seasonal trends and day-of-week effects
-            day_of_week = date.weekday()
-            is_weekend = day_of_week >= 5
-            month = date.month
-            
-            # Base metrics with realistic relationships
-            impressions = np.random.normal(50000, 15000) * (0.8 if is_weekend else 1.0) * (1.2 if month in [11, 12] else 1.0)
-            impressions = max(10000, impressions)
-            
-            ctr = np.random.normal(1.8, 0.5) if not is_weekend else np.random.normal(1.4, 0.4)
-            ctr = max(0.5, min(5.0, ctr))
-            
-            clicks = impressions * (ctr / 100)
-            
-            cpc = np.random.normal(1.25, 0.3) * (1.1 if is_weekend else 1.0)
-            cpc = max(0.5, min(3.0, cpc))
-            
-            spend = clicks * cpc
-            
-            conversion_rate = np.random.normal(3.2, 0.8) if not is_weekend else np.random.normal(2.8, 0.7)
-            conversion_rate = max(1.0, min(8.0, conversion_rate))
-            
-            conversions = clicks * (conversion_rate / 100)
-            
-            revenue_per_conversion = np.random.normal(85, 20)
-            revenue_per_conversion = max(30, revenue_per_conversion)
-            
-            revenue = conversions * revenue_per_conversion
-            
-            data.append({
-                'date': date,
-                'impressions': int(impressions),
-                'clicks': int(clicks),
-                'spend': round(spend, 2),
-                'conversions': int(conversions),
-                'revenue': round(revenue, 2),
-                'ctr': round(ctr, 2),
-                'cpc': round(cpc, 2),
-                'conversion_rate': round(conversion_rate, 2),
-                'roas': round(revenue / spend if spend > 0 else 0, 2),
-                'cpa': round(spend / conversions if conversions > 0 else 0, 2)
-            })
-        
-        self.historical_data = pd.DataFrame(data)
+
         
     def calculate_projections(self, days_to_project=30, budget_change=0, target_improvements=None):
-        """Calculate future projections based on historical data"""
+        """Calculate future projections based on available metrics in historical data"""
         if target_improvements is None:
             target_improvements = {}
             
+        if self.historical_data is None or len(self.available_metrics) == 0:
+            st.error("No data available for projections")
+            return pd.DataFrame()
+            
         # Prepare features for ML model
-        self.historical_data['day_of_week'] = self.historical_data['date'].dt.dayofweek
-        self.historical_data['month'] = self.historical_data['date'].dt.month
-        self.historical_data['day_of_year'] = self.historical_data['date'].dt.dayofyear
+        data_copy = self.historical_data.copy()
+        data_copy['day_of_week'] = data_copy['date'].dt.dayofweek
+        data_copy['month'] = data_copy['date'].dt.month
+        data_copy['day_of_year'] = data_copy['date'].dt.dayofyear
         
         # Features for prediction
         features = ['day_of_week', 'month', 'day_of_year']
-        X = self.historical_data[features]
+        X = data_copy[features]
         
-        # Train models for key metrics
+        # Determine which metrics to predict based on available data
+        predictable_metrics = [metric for metric in self.available_metrics if metric in data_copy.columns and metric != 'date']
+        
+        if not predictable_metrics:
+            st.error("No predictable metrics found in the data")
+            return pd.DataFrame()
+        
+        # Train models for available metrics
         models = {}
-        metrics_to_predict = ['impressions', 'ctr', 'cpc', 'conversion_rate']
-        
-        for metric in metrics_to_predict:
-            model = RandomForestRegressor(n_estimators=100, random_state=42)
-            model.fit(X, self.historical_data[metric])
-            models[metric] = model
+        for metric in predictable_metrics:
+            if data_copy[metric].notna().sum() > 5:  # Need at least 5 data points
+                model = RandomForestRegressor(n_estimators=50, random_state=42)
+                model.fit(X, data_copy[metric])
+                models[metric] = model
         
         # Generate future dates
-        last_date = self.historical_data['date'].max()
+        last_date = data_copy['date'].max()
         future_dates = pd.date_range(start=last_date + timedelta(days=1), periods=days_to_project, freq='D')
         
         # Create future features
@@ -228,40 +243,58 @@ class MetaAdsProjector:
         
         # Predict future metrics
         predictions = {}
-        for metric in metrics_to_predict:
+        for metric in models.keys():
             predictions[metric] = models[metric].predict(X_future)
         
         # Apply improvements and budget changes
         budget_multiplier = 1 + (budget_change / 100)
         
+        # Build projected data based on available metrics
         projected_data = []
         for i, date in enumerate(future_dates):
-            impressions = predictions['impressions'][i] * budget_multiplier
-            ctr = predictions['ctr'][i] * (1 + target_improvements.get('ctr_improvement', 0) / 100)
-            cpc = predictions['cpc'][i] * (1 + target_improvements.get('cpc_change', 0) / 100)
-            conversion_rate = predictions['conversion_rate'][i] * (1 + target_improvements.get('conversion_rate_improvement', 0) / 100)
+            row_data = {'date': date}
             
-            clicks = impressions * (ctr / 100)
-            spend = clicks * cpc
-            conversions = clicks * (conversion_rate / 100)
+            # Apply predictions with improvements
+            for metric in predictions.keys():
+                base_value = predictions[metric][i]
+                
+                # Apply budget changes to volume metrics
+                if metric in ['impressions', 'clicks', 'spend', 'conversions', 'revenue']:
+                    base_value *= budget_multiplier
+                
+                # Apply specific improvements
+                if metric == 'ctr':
+                    base_value *= (1 + target_improvements.get('ctr_improvement', 0) / 100)
+                elif metric == 'cpc':
+                    base_value *= (1 + target_improvements.get('cpc_change', 0) / 100)
+                elif metric == 'conversion_rate':
+                    base_value *= (1 + target_improvements.get('conversion_rate_improvement', 0) / 100)
+                elif metric == 'revenue':
+                    base_value *= (1 + target_improvements.get('aov_improvement', 0) / 100)
+                
+                # Round appropriately
+                if metric in ['impressions', 'clicks', 'conversions']:
+                    row_data[metric] = max(0, int(base_value))
+                else:
+                    row_data[metric] = max(0, round(base_value, 2))
             
-            # Estimate revenue based on historical average
-            avg_revenue_per_conversion = self.historical_data['revenue'].sum() / self.historical_data['conversions'].sum()
-            revenue = conversions * avg_revenue_per_conversion * (1 + target_improvements.get('aov_improvement', 0) / 100)
+            # Calculate derived metrics if base metrics are available
+            if 'impressions' in row_data and 'clicks' in row_data and 'ctr' not in row_data:
+                row_data['ctr'] = round((row_data['clicks'] / row_data['impressions'] * 100) if row_data['impressions'] > 0 else 0, 2)
             
-            projected_data.append({
-                'date': date,
-                'impressions': int(impressions),
-                'clicks': int(clicks),
-                'spend': round(spend, 2),
-                'conversions': int(conversions),
-                'revenue': round(revenue, 2),
-                'ctr': round(ctr, 2),
-                'cpc': round(cpc, 2),
-                'conversion_rate': round(conversion_rate, 2),
-                'roas': round(revenue / spend if spend > 0 else 0, 2),
-                'cpa': round(spend / conversions if conversions > 0 else 0, 2)
-            })
+            if 'spend' in row_data and 'clicks' in row_data and 'cpc' not in row_data:
+                row_data['cpc'] = round((row_data['spend'] / row_data['clicks']) if row_data['clicks'] > 0 else 0, 2)
+            
+            if 'conversions' in row_data and 'clicks' in row_data and 'conversion_rate' not in row_data:
+                row_data['conversion_rate'] = round((row_data['conversions'] / row_data['clicks'] * 100) if row_data['clicks'] > 0 else 0, 2)
+            
+            if 'revenue' in row_data and 'spend' in row_data and 'roas' not in row_data:
+                row_data['roas'] = round((row_data['revenue'] / row_data['spend']) if row_data['spend'] > 0 else 0, 2)
+            
+            if 'spend' in row_data and 'conversions' in row_data and 'cpa' not in row_data:
+                row_data['cpa'] = round((row_data['spend'] / row_data['conversions']) if row_data['conversions'] > 0 else 0, 2)
+            
+            projected_data.append(row_data)
         
         return pd.DataFrame(projected_data)
 
@@ -450,141 +483,118 @@ def main():
     st.markdown('<h1 class="main-header">📊 Meta Ads Performance Projections & AI Assistant</h1>', unsafe_allow_html=True)
     
     # File upload section
-    st.header("📁 Data Input")
+    st.header("📁 Upload Your Meta Ads Data")
     
-    # Data source selection
-    data_source = st.radio(
-        "Choose your data source:",
-        ["Upload CSV File", "Use Sample Data"],
-        horizontal=True
+    # File upload widget
+    uploaded_file = st.file_uploader(
+        "Choose a CSV file",
+        type=['csv'],
+        help="Upload your Meta Ads data CSV file. Required: 'date' column. The system will automatically detect and work with available metrics."
     )
     
-    projector = None
-    
-    if data_source == "Upload CSV File":
-        st.subheader("Upload Your Meta Ads CSV File")
+    if uploaded_file is None:
+        st.info("👆 Please upload a CSV file to start analyzing your Meta Ads data")
+        st.markdown("### 📋 CSV Requirements:")
+        st.markdown("""
+        **Required Column:**
+        - **date**: Date in YYYY-MM-DD format
         
-        # File upload widget
-        uploaded_file = st.file_uploader(
-            "Choose a CSV file",
-            type=['csv'],
-            help="Upload your Meta Ads data CSV file. Required columns: date, spend, impressions, clicks, conversions, revenue"
-        )
+        **Supported Metrics** (include any combination):
+        - **spend/cost/amount_spent**: Ad spend amount
+        - **impressions/impr/views**: Number of impressions  
+        - **clicks/click/link_clicks**: Number of clicks
+        - **conversions/conv/purchases**: Number of conversions
+        - **revenue/purchase_value/sales**: Revenue generated
+        - **ctr/click_through_rate**: Click-through rate
+        - **cpc/cost_per_click**: Cost per click
+        - **cpm/cost_per_mille**: Cost per thousand impressions
+        - **conversion_rate/conv_rate**: Conversion rate
+        - **roas/return_on_ad_spend**: Return on ad spend
+        - **cpa/cost_per_acquisition**: Cost per acquisition
+        - **reach/unique_reach**: Reach metrics
+        - **frequency/avg_frequency**: Frequency metrics
         
-        if uploaded_file is not None:
-            # Initialize projector without sample data
-            projector = MetaAdsProjector(data_source='csv')
-            
-            # Load the CSV data
-            if projector.load_csv_data(uploaded_file):
-                st.success("✅ Data loaded successfully! You can now use all projection features.")
-            else:
-                st.error("❌ Failed to load data. Please check your CSV file format.")
-                return
-        else:
-            st.info("👆 Please upload a CSV file to continue with your Meta Ads data")
-            st.markdown("### 📋 Required CSV Format:")
-            st.markdown("""
-            Your CSV file should contain the following columns:
-            - **date**: Date in YYYY-MM-DD format
-            - **spend**: Ad spend amount
-            - **impressions**: Number of impressions
-            - **clicks**: Number of clicks
-            - **conversions**: Number of conversions
-            - **revenue**: Revenue generated
-            
-            Optional columns (will be calculated if missing):
-            - **ctr**: Click-through rate
-            - **cpc**: Cost per click
-            - **conversion_rate**: Conversion rate
-            - **roas**: Return on ad spend
-            - **cpa**: Cost per acquisition
-            """)
-            
-            # Show sample CSV format
-            sample_data = {
-                'date': ['2024-01-01', '2024-01-02', '2024-01-03'],
-                'spend': [1000.00, 1200.00, 950.00],
-                'impressions': [50000, 55000, 48000],
-                'clicks': [1000, 1150, 920],
-                'conversions': [35, 42, 31],
-                'revenue': [3500.00, 4200.00, 3100.00]
-            }
-            sample_df = pd.DataFrame(sample_data)
-            st.markdown("### 📊 Sample CSV Format:")
-            st.dataframe(sample_df, use_container_width=True)
-            
-            # Provide download link for sample CSV
-            try:
-                with open('sample_meta_ads_data.csv', 'r') as file:
-                    csv_data = file.read()
-                st.download_button(
-                    label="📥 Download Sample CSV Template",
-                    data=csv_data,
-                    file_name="meta_ads_template.csv",
-                    mime="text/csv",
-                    help="Download this template and fill it with your Meta Ads data"
-                )
-            except FileNotFoundError:
-                # Create sample CSV data inline if file doesn't exist
-                sample_csv = """date,spend,impressions,clicks,conversions,revenue
-2024-01-01,1000.00,50000,1000,35,3500.00
-2024-01-02,1200.00,55000,1150,42,4200.00
-2024-01-03,950.00,48000,920,31,3100.00"""
-                st.download_button(
-                    label="📥 Download Sample CSV Template",
-                    data=sample_csv,
-                    file_name="meta_ads_template.csv",
-                    mime="text/csv",
-                    help="Download this template and fill it with your Meta Ads data"
-                )
-            
-            return
+        The system will automatically detect your metrics and calculate missing derived metrics where possible.
+        """)
+        return
     
-    else:  # Use Sample Data
-        st.info("📊 Using sample Meta Ads data for demonstration")
-        projector = MetaAdsProjector(data_source='sample')
+    # Initialize projector and load data
+    projector = MetaAdsProjector()
     
-    # Only proceed if we have a valid projector with data
-    if projector is None or projector.historical_data is None:
-        st.warning("⚠️ No data available. Please upload a CSV file or use sample data.")
+    if not projector.load_csv_data(uploaded_file):
+        st.error("❌ Failed to load data. Please check your CSV file format.")
+        return
+    
+    # Only proceed if we have valid data
+    if projector.historical_data is None:
+        st.warning("⚠️ No valid data available.")
         return
     
     # Display data summary
     st.subheader("📊 Data Summary")
-    col1, col2, col3, col4 = st.columns(4)
     
-    with col1:
-        st.metric("Total Records", len(projector.historical_data))
-    with col2:
-        st.metric("Date Range", f"{(projector.historical_data['date'].max() - projector.historical_data['date'].min()).days} days")
-    with col3:
-        st.metric("Total Spend", f"${projector.historical_data['spend'].sum():,.2f}")
-    with col4:
-        st.metric("Total Revenue", f"${projector.historical_data['revenue'].sum():,.2f}")
+    # Create dynamic columns based on available metrics
+    summary_metrics = []
+    if 'spend' in projector.available_metrics:
+        summary_metrics.append(("Total Spend", f"${projector.historical_data['spend'].sum():,.2f}"))
+    if 'revenue' in projector.available_metrics:
+        summary_metrics.append(("Total Revenue", f"${projector.historical_data['revenue'].sum():,.2f}"))
+    if 'impressions' in projector.available_metrics:
+        summary_metrics.append(("Total Impressions", f"{projector.historical_data['impressions'].sum():,.0f}"))
+    if 'clicks' in projector.available_metrics:
+        summary_metrics.append(("Total Clicks", f"{projector.historical_data['clicks'].sum():,.0f}"))
+    if 'conversions' in projector.available_metrics:
+        summary_metrics.append(("Total Conversions", f"{projector.historical_data['conversions'].sum():,.0f}"))
+    
+    # Always show basic info
+    basic_info = [
+        ("Total Records", len(projector.historical_data)),
+        ("Date Range", f"{(projector.historical_data['date'].max() - projector.historical_data['date'].min()).days} days")
+    ]
+    
+    # Combine and display metrics
+    all_metrics = basic_info + summary_metrics[:3]  # Limit to 5 total columns
+    cols = st.columns(len(all_metrics))
+    
+    for i, (label, value) in enumerate(all_metrics):
+        with cols[i]:
+            st.metric(label, value)
     
     # Data preview
-    with st.expander("📋 View Data Preview"):
+    with st.expander("📋 View Data Preview & Quality Indicators"):
         st.dataframe(projector.historical_data.head(10), use_container_width=True)
         
-        # Show data quality indicators
-        st.subheader("📈 Data Quality Indicators")
-        col1, col2, col3 = st.columns(3)
+        # Show data quality indicators based on available metrics
+        st.subheader("📈 Performance Indicators")
         
-        with col1:
+        quality_metrics = []
+        if 'roas' in projector.available_metrics:
             avg_roas = projector.historical_data['roas'].mean()
-            st.metric("Average ROAS", f"{avg_roas:.2f}", 
-                     delta="Good" if avg_roas >= 3.0 else "Needs Improvement")
+            quality_metrics.append(("Average ROAS", f"{avg_roas:.2f}", "Good" if avg_roas >= 3.0 else "Needs Improvement"))
         
-        with col2:
+        if 'ctr' in projector.available_metrics:
             avg_ctr = projector.historical_data['ctr'].mean()
-            st.metric("Average CTR", f"{avg_ctr:.2f}%", 
-                     delta="Good" if avg_ctr >= 1.5 else "Needs Improvement")
+            quality_metrics.append(("Average CTR", f"{avg_ctr:.2f}%", "Good" if avg_ctr >= 1.5 else "Needs Improvement"))
         
-        with col3:
+        if 'conversion_rate' in projector.available_metrics:
             avg_conv_rate = projector.historical_data['conversion_rate'].mean()
-            st.metric("Average Conv. Rate", f"{avg_conv_rate:.2f}%", 
-                     delta="Good" if avg_conv_rate >= 3.0 else "Needs Improvement")
+            quality_metrics.append(("Average Conv. Rate", f"{avg_conv_rate:.2f}%", "Good" if avg_conv_rate >= 3.0 else "Needs Improvement"))
+        
+        if 'cpc' in projector.available_metrics:
+            avg_cpc = projector.historical_data['cpc'].mean()
+            quality_metrics.append(("Average CPC", f"${avg_cpc:.2f}", "Good" if avg_cpc <= 2.0 else "Needs Improvement"))
+        
+        if 'cpa' in projector.available_metrics:
+            avg_cpa = projector.historical_data['cpa'].mean()
+            quality_metrics.append(("Average CPA", f"${avg_cpa:.2f}", "Monitor"))
+        
+        if quality_metrics:
+            qual_cols = st.columns(min(len(quality_metrics), 3))
+            for i, (label, value, status) in enumerate(quality_metrics[:3]):
+                with qual_cols[i]:
+                    st.metric(label, value, delta=status)
+        else:
+            st.info("Upload data with performance metrics (ROAS, CTR, etc.) to see quality indicators.")
     
     # Sidebar configuration
     st.sidebar.header("🎯 Projection Settings")
