@@ -5,6 +5,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import altair as alt
+import json
+import random
 
 # Page configuration
 st.set_page_config(
@@ -125,91 +127,284 @@ class SimpleBudgetProjector:
         
         return projections_df, summary
     
-    def generate_ai_recommendations(self, summary, cpc, budget):
-        """Generate AI recommendations based on projections"""
-        recommendations = []
+    def get_performance_context(self, summary, cpc, budget, projections_df):
+        """Get context about the current projections for AI assistant"""
+        context = f"""
+        Current Meta Ads Projection Analysis:
         
-        # ROAS Analysis
-        if summary['roas'] < 2.0:
-            recommendations.append({
-                'type': '🚨 Critical',
-                'title': 'Low ROAS Alert',
-                'message': f"Your projected ROAS of {summary['roas']:.2f} is below the 2.0 minimum threshold. Consider reducing CPC or improving conversion rates.",
-                'action': 'Optimize targeting or reduce bid amounts'
-            })
-        elif summary['roas'] < 3.0:
-            recommendations.append({
-                'type': '⚠️ Warning',
-                'title': 'ROAS Improvement Needed',
-                'message': f"ROAS of {summary['roas']:.2f} is acceptable but could be better. Industry average is 3.0+.",
-                'action': 'Test new ad creatives or landing pages'
-            })
+        BUDGET & SETUP:
+        - Total Budget: ${budget:,.2f}
+        - Target CPC: ${cpc:.2f}
+        - Projection Period: {len(projections_df)} days
+        
+        PROJECTED PERFORMANCE:
+        - Total Clicks: {summary['total_clicks']:,}
+        - Total Impressions: {summary['total_impressions']:,}
+        - Total Conversions: {summary['total_conversions']:,}
+        - Total Revenue: ${summary['total_revenue']:,.2f}
+        - Profit/Loss: ${summary['profit']:,.2f}
+        
+        KEY METRICS:
+        - ROAS: {summary['roas']:.2f}x
+        - CPA: ${summary['cpa']:.2f}
+        - CTR: {summary['avg_ctr']:.2f}%
+        - Conversion Rate: {summary['avg_conversion_rate']:.2f}%
+        - CPM: ${summary['cpm']:.2f}
+        
+        PERFORMANCE BENCHMARKS:
+        - Industry Average ROAS: 3.0x
+        - Industry Average CTR: 1.5%
+        - Industry Average Conversion Rate: 3.2%
+        - Recommended CPC Range: $0.50 - $2.00
+        
+        DAILY PERFORMANCE:
+        - Average Daily Spend: ${budget/len(projections_df):.2f}
+        - Average Daily Revenue: ${summary['total_revenue']/len(projections_df):.2f}
+        - Average Daily Clicks: {summary['total_clicks']//len(projections_df):,}
+        - Average Daily Conversions: {summary['total_conversions']//len(projections_df):,}
+        """
+        return context
+
+class AIAssistant:
+    def __init__(self):
+        self.context = ""
+        self.conversation_history = []
+        
+    def set_context(self, context):
+        """Set the current projection context for the AI assistant"""
+        self.context = context
+    
+    def generate_response(self, user_question):
+        """Generate AI response based on user question and projection context"""
+        
+        # Convert question to lowercase for pattern matching
+        question_lower = user_question.lower()
+        
+        # Initialize response
+        response = ""
+        
+        # Parse the context to extract key metrics
+        lines = self.context.strip().split('\n')
+        metrics = {}
+        for line in lines:
+            if ':' in line and any(char.isdigit() for char in line):
+                parts = line.split(':')
+                if len(parts) == 2:
+                    key = parts[0].strip().replace('-', '').strip()
+                    value = parts[1].strip()
+                    metrics[key.lower()] = value
+        
+        # Question categories and responses
+        if any(word in question_lower for word in ['roas', 'return', 'revenue ratio']):
+            roas_value = self.extract_number(metrics.get('roas', '0'))
+            if roas_value < 2.0:
+                response = f"🚨 **ROAS Analysis**: Your projected ROAS of {roas_value:.2f}x is concerning. Here's what you need to know:\n\n" \
+                          f"• **Current Status**: Below the 2.0x minimum threshold\n" \
+                          f"• **Industry Benchmark**: 3.0x is considered good\n" \
+                          f"• **Immediate Actions**: Reduce CPC, improve landing pages, or refine targeting\n" \
+                          f"• **Risk**: You may lose money at this ROAS level\n" \
+                          f"• **Priority**: HIGH - Address immediately before campaign launch"
+            elif roas_value < 3.0:
+                response = f"⚠️ **ROAS Analysis**: Your projected ROAS of {roas_value:.2f}x is acceptable but needs improvement:\n\n" \
+                          f"• **Current Status**: Above break-even but below optimal\n" \
+                          f"• **Industry Benchmark**: You're {3.0-roas_value:.2f}x below the 3.0x industry average\n" \
+                          f"• **Optimization**: Test new ad creatives, improve landing pages\n" \
+                          f"• **Potential**: Good foundation to build upon\n" \
+                          f"• **Next Steps**: Focus on conversion rate optimization"
+            else:
+                response = f"✅ **ROAS Analysis**: Excellent ROAS of {roas_value:.2f}x! You're performing well:\n\n" \
+                          f"• **Current Status**: {roas_value-3.0:.2f}x above industry benchmark\n" \
+                          f"• **Performance**: Strong profitability indicators\n" \
+                          f"• **Opportunity**: Consider scaling budget to maximize profits\n" \
+                          f"• **Maintenance**: Monitor performance while scaling\n" \
+                          f"• **Growth Strategy**: Expand to similar audiences"
+        
+        elif any(word in question_lower for word in ['cpc', 'cost per click', 'click cost']):
+            cpc_value = self.extract_number(metrics.get('target cpc', '0'))
+            response = f"💰 **CPC Analysis**: Your target CPC of ${cpc_value:.2f} analysis:\n\n"
+            if cpc_value > 2.5:
+                response += f"🚨 **Status**: High CPC - may impact profitability\n" \
+                           f"• **Recommendation**: Reduce bids or improve Quality Score\n" \
+                           f"• **Actions**: Refine targeting, improve ad relevance\n" \
+                           f"• **Risk**: High acquisition costs\n" \
+                           f"• **Target**: Aim for $1.50-$2.00 range"
+            elif cpc_value > 1.5:
+                response += f"⚠️ **Status**: Moderate CPC - room for optimization\n" \
+                           f"• **Opportunity**: Test lower bid strategies\n" \
+                           f"• **Actions**: Audience refinement, A/B test ads\n" \
+                           f"• **Potential**: 15-25% cost reduction possible\n" \
+                           f"• **Monitor**: Quality Score and relevance metrics"
+            else:
+                response += f"✅ **Status**: Competitive and cost-effective\n" \
+                           f"• **Performance**: Well within optimal range\n" \
+                           f"• **Strategy**: Maintain current approach\n" \
+                           f"• **Opportunity**: Consider scaling volume\n" \
+                           f"• **Advantage**: Cost efficiency for growth"
+        
+        elif any(word in question_lower for word in ['conversion', 'convert', 'cvr']):
+            conv_rate = self.extract_number(metrics.get('conversion rate', '0'))
+            response = f"🎯 **Conversion Rate Analysis**: Your projected {conv_rate:.2f}% conversion rate:\n\n"
+            if conv_rate < 2.0:
+                response += f"🚨 **Status**: Below industry standards\n" \
+                           f"• **Benchmark Gap**: Industry average is 3.2%\n" \
+                           f"• **Impact**: Significantly limiting campaign profitability\n" \
+                           f"• **Priority Actions**: Landing page optimization, UX improvements\n" \
+                           f"• **Testing**: A/B test checkout process, forms, CTAs\n" \
+                           f"• **Quick Wins**: Add trust signals, social proof, testimonials"
+            elif conv_rate < 3.2:
+                response += f"⚠️ **Status**: Below industry average\n" \
+                           f"• **Gap**: {3.2-conv_rate:.1f}% below benchmark\n" \
+                           f"• **Opportunity**: Significant improvement potential\n" \
+                           f"• **Focus**: Landing page and funnel optimization\n" \
+                           f"• **Impact**: Could improve ROAS by {((3.2/conv_rate)-1)*100:.0f}%"
+            else:
+                response += f"✅ **Status**: Meeting or exceeding benchmarks\n" \
+                           f"• **Performance**: {conv_rate-3.2:.1f}% above industry average\n" \
+                           f"• **Strength**: Strong funnel optimization\n" \
+                           f"• **Strategy**: Focus on scaling successful elements\n" \
+                           f"• **Growth**: Test premium offerings or upsells"
+        
+        elif any(word in question_lower for word in ['budget', 'spend', 'money', 'cost']):
+            total_budget = self.extract_number(metrics.get('total budget', '0'))
+            profit = self.extract_number(metrics.get('profit/loss', '0'))
+            response = f"💰 **Budget Analysis**: Your ${total_budget:,.0f} budget breakdown:\n\n"
+            if profit < 0:
+                response += f"🚨 **Profit Projection**: ${abs(profit):,.0f} loss projected\n" \
+                           f"• **Risk Level**: HIGH - Campaign may lose money\n" \
+                           f"• **Immediate Action**: Reduce budget or optimize performance\n" \
+                           f"• **Options**: Lower CPC, improve conversion rate, or pause\n" \
+                           f"• **Break-even**: Need {abs(profit/total_budget)*100:.0f}% improvement in ROAS"
+            else:
+                response += f"✅ **Profit Projection**: ${profit:,.0f} profit expected\n" \
+                           f"• **ROI**: {(profit/total_budget)*100:.1f}% return on investment\n" \
+                           f"• **Performance**: Budget is well-allocated\n" \
+                           f"• **Scaling**: Consider increasing budget if ROAS remains stable\n" \
+                           f"• **Growth**: {20}% budget increase could add ${profit*0.2:,.0f} profit"
+        
+        elif any(word in question_lower for word in ['optimize', 'improve', 'better', 'increase']):
+            roas_value = self.extract_number(metrics.get('roas', '0'))
+            conv_rate = self.extract_number(metrics.get('conversion rate', '0'))
+            cpc_value = self.extract_number(metrics.get('target cpc', '0'))
+            
+            response = f"🚀 **Optimization Recommendations**: Top priorities for improvement:\n\n"
+            
+            recommendations = []
+            if roas_value < 3.0:
+                recommendations.append("**1. ROAS Improvement** - Focus on conversion rate and AOV optimization")
+            if conv_rate < 3.2:
+                recommendations.append("**2. Conversion Rate** - Landing page and funnel optimization")
+            if cpc_value > 2.0:
+                recommendations.append("**3. CPC Reduction** - Improve Quality Score and targeting")
+            
+            if not recommendations:
+                recommendations.append("**1. Scale Performance** - Increase budget gradually")
+                recommendations.append("**2. Audience Expansion** - Test lookalike audiences")
+                recommendations.append("**3. Creative Testing** - A/B test new ad formats")
+            
+            for rec in recommendations[:3]:
+                response += f"• {rec}\n"
+            
+            response += f"\n**Quick Wins**:\n" \
+                       f"• Add urgency/scarcity to landing pages\n" \
+                       f"• Test mobile-first ad creatives\n" \
+                       f"• Implement retargeting campaigns\n" \
+                       f"• A/B test headlines and CTAs"
+        
+        elif any(word in question_lower for word in ['scale', 'scaling', 'increase budget', 'grow']):
+            roas_value = self.extract_number(metrics.get('roas', '0'))
+            total_budget = self.extract_number(metrics.get('total budget', '0'))
+            
+            response = f"📈 **Scaling Strategy**: Budget scaling recommendations:\n\n"
+            
+            if roas_value >= 3.0:
+                response += f"✅ **Ready to Scale**: ROAS of {roas_value:.2f}x supports growth\n" \
+                           f"• **Scaling Approach**: Increase budget by 20-30% weekly\n" \
+                           f"• **Monitor**: ROAS should stay above 2.5x while scaling\n" \
+                           f"• **Target**: Scale to ${total_budget*1.5:,.0f} if performance holds\n" \
+                           f"• **Risk Management**: Scale back if ROAS drops below 2.8x"
+            elif roas_value >= 2.0:
+                response += f"⚠️ **Conservative Scaling**: ROAS of {roas_value:.2f}x allows limited growth\n" \
+                           f"• **Approach**: 10-15% weekly increases maximum\n" \
+                           f"• **Priority**: Optimize performance before aggressive scaling\n" \
+                           f"• **Safety**: Keep close eye on profitability metrics\n" \
+                           f"• **Goal**: Improve ROAS to 3.0x before major scaling"
+            else:
+                response += f"🚨 **Not Ready to Scale**: ROAS of {roas_value:.2f}x too low\n" \
+                           f"• **Priority**: Optimize performance first\n" \
+                           f"• **Action**: Focus on conversion rate and CPC improvements\n" \
+                           f"• **Target**: Achieve 2.5x+ ROAS before scaling\n" \
+                           f"• **Risk**: Scaling now would increase losses"
+        
+        elif any(word in question_lower for word in ['click', 'impression', 'traffic']):
+            clicks = metrics.get('total clicks', '0').replace(',', '')
+            impressions = metrics.get('total impressions', '0').replace(',', '')
+            ctr = self.extract_number(metrics.get('ctr', '0'))
+            
+            response = f"👆 **Traffic Analysis**: Your projected traffic metrics:\n\n" \
+                      f"• **Total Clicks**: {clicks} over projection period\n" \
+                      f"• **Total Impressions**: {impressions}\n" \
+                      f"• **CTR**: {ctr:.2f}% (Industry benchmark: 1.5%)\n\n"
+            
+            if ctr < 1.0:
+                response += f"🚨 **CTR Issue**: Significantly below benchmark\n" \
+                           f"• **Impact**: Poor ad relevance and higher costs\n" \
+                           f"• **Actions**: Refresh creative, improve targeting\n" \
+                           f"• **Priority**: HIGH - affects all other metrics"
+            elif ctr < 1.5:
+                response += f"⚠️ **CTR Opportunity**: Below industry average\n" \
+                           f"• **Potential**: {((1.5/ctr)-1)*100:.0f}% improvement possible\n" \
+                           f"• **Actions**: A/B test headlines and visuals\n" \
+                           f"• **Impact**: Better CTR = lower CPC"
+            else:
+                response += f"✅ **CTR Performance**: Above benchmark\n" \
+                           f"• **Strength**: Strong ad relevance\n" \
+                           f"• **Advantage**: Lower costs and better reach\n" \
+                           f"• **Strategy**: Scale successful creatives"
+        
         else:
-            recommendations.append({
-                'type': '✅ Good',
-                'title': 'Strong ROAS Performance',
-                'message': f"Excellent ROAS of {summary['roas']:.2f}! Your campaign is performing well.",
-                'action': 'Consider scaling budget to maximize profits'
-            })
+            # General analysis if no specific category matches
+            roas_value = self.extract_number(metrics.get('roas', '0'))
+            profit = self.extract_number(metrics.get('profit/loss', '0'))
+            
+            response = f"📊 **Campaign Analysis**: Based on your projections:\n\n" \
+                      f"**Performance Summary**:\n" \
+                      f"• ROAS: {roas_value:.2f}x ({'✅ Good' if roas_value >= 3.0 else '⚠️ Needs improvement' if roas_value >= 2.0 else '🚨 Critical'})\n" \
+                      f"• Profit: ${profit:,.0f} ({'✅ Profitable' if profit > 0 else '🚨 Loss projected'})\n\n" \
+                      f"**Key Insights**:\n"
+            
+            if profit > 0 and roas_value >= 3.0:
+                response += f"• Strong campaign setup with good profitability\n" \
+                           f"• Consider scaling budget gradually\n" \
+                           f"• Monitor performance closely while growing"
+            elif profit > 0:
+                response += f"• Profitable but room for optimization\n" \
+                           f"• Focus on improving ROAS before scaling\n" \
+                           f"• Test conversion rate improvements"
+            else:
+                response += f"• Campaign needs optimization before launch\n" \
+                           f"• Reduce CPC or improve conversion rate\n" \
+                           f"• Consider lowering initial budget"
         
-        # CPC Analysis
-        if cpc > 2.5:
-            recommendations.append({
-                'type': '🚨 Critical',
-                'title': 'High CPC Warning',
-                'message': f"Your CPC of ${cpc:.2f} is quite high. This may impact profitability.",
-                'action': 'Improve Quality Score, refine targeting, or test lower bids'
-            })
-        elif cpc > 1.5:
-            recommendations.append({
-                'type': '⚠️ Warning',
-                'title': 'CPC Optimization Opportunity',
-                'message': f"CPC of ${cpc:.2f} is moderate but could be optimized.",
-                'action': 'Test different bidding strategies or audience refinements'
-            })
-        else:
-            recommendations.append({
-                'type': '✅ Good',
-                'title': 'Competitive CPC',
-                'message': f"Your CPC of ${cpc:.2f} is competitive and cost-effective.",
-                'action': 'Maintain current strategy and monitor performance'
-            })
+        # Add the question and response to conversation history
+        self.conversation_history.append({
+            'question': user_question,
+            'response': response,
+            'timestamp': datetime.now().strftime("%H:%M:%S")
+        })
         
-        # Conversion Analysis
-        if summary['avg_conversion_rate'] < 2.0:
-            recommendations.append({
-                'type': '🚨 Critical',
-                'title': 'Low Conversion Rate',
-                'message': f"Conversion rate of {summary['avg_conversion_rate']:.2f}% needs improvement.",
-                'action': 'Optimize landing pages, improve product pages, or refine targeting'
-            })
-        elif summary['avg_conversion_rate'] < 3.0:
-            recommendations.append({
-                'type': '⚠️ Warning',
-                'title': 'Conversion Rate Below Average',
-                'message': f"Conversion rate of {summary['avg_conversion_rate']:.2f}% is below industry average of 3.2%.",
-                'action': 'A/B test landing pages or checkout process'
-            })
-        
-        # Budget Recommendations
-        if budget < 1000:
-            recommendations.append({
-                'type': '💡 Suggestion',
-                'title': 'Budget Scale Opportunity',
-                'message': f"With a budget of ${budget:,.2f}, consider scaling if ROAS is strong.",
-                'action': 'Gradually increase daily budget by 20-30% if performance is good'
-            })
-        
-        # Profit Analysis
-        if summary['profit'] < 0:
-            recommendations.append({
-                'type': '🚨 Critical',
-                'title': 'Negative Profit Projection',
-                'message': f"Projected loss of ${abs(summary['profit']):,.2f}. Immediate optimization needed.",
-                'action': 'Reduce budget, lower CPC, or improve conversion funnel'
-            })
-        
-        return recommendations
+        return response
+    
+    def extract_number(self, text):
+        """Extract numeric value from text string"""
+        try:
+            # Remove common characters and extract number
+            import re
+            numbers = re.findall(r'[\d.]+', str(text))
+            if numbers:
+                return float(numbers[0])
+            return 0.0
+        except:
+            return 0.0
 
 def main():
     st.markdown('<h1 class="main-header">📊 Meta Ads Budget Projector</h1>', unsafe_allow_html=True)
@@ -336,20 +531,62 @@ def main():
                                        'thickness': 0.75, 'value': 2.0}}))
                 st.plotly_chart(fig, use_container_width=True)
         
-        # AI Recommendations
-        st.header("🤖 AI Recommendations")
+        # AI Assistant
+        st.header("🤖 AI Assistant - Ask Any Questions!")
         
-        recommendations = projector.generate_ai_recommendations(summary, cpc, budget)
+        # Initialize AI assistant and set context
+        if 'ai_assistant' not in st.session_state:
+            st.session_state.ai_assistant = AIAssistant()
         
-        for rec in recommendations:
-            if rec['type'] == '🚨 Critical':
-                st.error(f"**{rec['title']}**\n\n{rec['message']}\n\n**Action:** {rec['action']}")
-            elif rec['type'] == '⚠️ Warning':
-                st.warning(f"**{rec['title']}**\n\n{rec['message']}\n\n**Action:** {rec['action']}")
-            elif rec['type'] == '✅ Good':
-                st.success(f"**{rec['title']}**\n\n{rec['message']}\n\n**Action:** {rec['action']}")
-            else:
-                st.info(f"**{rec['title']}**\n\n{rec['message']}\n\n**Action:** {rec['action']}")
+        # Set context for the AI assistant
+        context = projector.get_performance_context(summary, cpc, budget, projections_df)
+        st.session_state.ai_assistant.set_context(context)
+        
+        # Quick question buttons
+        st.subheader("💡 Quick Questions")
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            if st.button("📈 How's my ROAS?"):
+                response = st.session_state.ai_assistant.generate_response("How is my ROAS performance?")
+                st.markdown(f"**AI Response:**\n\n{response}")
+        
+        with col2:
+            if st.button("💰 Budget analysis?"):
+                response = st.session_state.ai_assistant.generate_response("Can you analyze my budget and profit projections?")
+                st.markdown(f"**AI Response:**\n\n{response}")
+        
+        with col3:
+            if st.button("🚀 How to optimize?"):
+                response = st.session_state.ai_assistant.generate_response("How can I optimize my campaign performance?")
+                st.markdown(f"**AI Response:**\n\n{response}")
+        
+        with col4:
+            if st.button("📊 Should I scale?"):
+                response = st.session_state.ai_assistant.generate_response("Should I scale my budget and how?")
+                st.markdown(f"**AI Response:**\n\n{response}")
+        
+        # Custom question input
+        st.subheader("❓ Ask Your Own Question")
+        user_question = st.text_area(
+            "Type your question about the campaign projections:",
+            placeholder="E.g., What's causing my low conversion rate? How can I improve my CPC? Is this budget sufficient for my goals?",
+            height=100
+        )
+        
+        if st.button("🎯 Get AI Answer", type="primary") and user_question.strip():
+            with st.spinner("🤖 AI is analyzing your question..."):
+                response = st.session_state.ai_assistant.generate_response(user_question)
+                st.markdown("### 🤖 AI Response:")
+                st.markdown(response)
+        
+        # Conversation History
+        if hasattr(st.session_state.ai_assistant, 'conversation_history') and st.session_state.ai_assistant.conversation_history:
+            with st.expander("💬 Conversation History"):
+                for i, chat in enumerate(reversed(st.session_state.ai_assistant.conversation_history[-5:]), 1):
+                    st.markdown(f"**Q{i} ({chat['timestamp']}):** {chat['question']}")
+                    st.markdown(f"**A{i}:** {chat['response'][:200]}..." if len(chat['response']) > 200 else f"**A{i}:** {chat['response']}")
+                    st.markdown("---")
         
         # Daily Breakdown Table
         st.header("📅 Daily Breakdown")
