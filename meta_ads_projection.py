@@ -10,6 +10,23 @@ from sklearn.metrics import mean_squared_error, r2_score
 import warnings
 warnings.filterwarnings('ignore')
 
+# Helper function to safely sum numeric columns in DataFrames
+def safe_numeric_sum(df, exclude_columns=['date']):
+    """
+    Safely sum numeric columns in a DataFrame, excluding datetime and other non-numeric columns.
+    
+    Args:
+        df (pd.DataFrame): DataFrame to sum
+        exclude_columns (list): Columns to exclude from summation
+    
+    Returns:
+        pd.Series: Sum of numeric columns
+    """
+    numeric_columns = df.select_dtypes(include=[np.number]).columns.tolist()
+    # Remove any explicitly excluded columns
+    numeric_columns = [col for col in numeric_columns if col not in exclude_columns]
+    return df[numeric_columns].sum()
+
 # Configure page
 st.set_page_config(
     page_title="Meta Ads Performance Projections",
@@ -432,7 +449,8 @@ def show_dashboard(historical_data, projected_data):
     
     # Recent performance metrics
     recent_data = historical_data.tail(30)
-    projected_totals = projected_data.sum()
+    # Use safe numeric sum to avoid datetime sum error
+    projected_totals = safe_numeric_sum(projected_data)
     
     col1, col2, col3, col4 = st.columns(4)
     
