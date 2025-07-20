@@ -73,9 +73,65 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 class MetaAdsProjector:
-    def __init__(self):
-        self.initialize_sample_data()
+    def __init__(self, data_source='sample'):
+        self.data_source = data_source
+        self.historical_data = None
+        if data_source == 'sample':
+            self.initialize_sample_data()
         
+    def load_csv_data(self, uploaded_file):
+        """Load Meta Ads data from uploaded CSV file"""
+        try:
+            # Read the CSV file
+            df = pd.read_csv(uploaded_file)
+            
+            # Validate required columns
+            required_columns = ['date', 'spend', 'impressions', 'clicks', 'conversions', 'revenue']
+            missing_columns = [col for col in required_columns if col not in df.columns]
+            
+            if missing_columns:
+                st.error(f"Missing required columns: {missing_columns}")
+                st.info("Required columns: date, spend, impressions, clicks, conversions, revenue")
+                return False
+            
+            # Convert date column to datetime
+            df['date'] = pd.to_datetime(df['date'])
+            
+            # Calculate derived metrics if not present
+            if 'ctr' not in df.columns:
+                df['ctr'] = (df['clicks'] / df['impressions'] * 100).round(2)
+            
+            if 'cpc' not in df.columns:
+                df['cpc'] = (df['spend'] / df['clicks']).round(2)
+                df['cpc'] = df['cpc'].replace([np.inf, -np.inf], 0)
+            
+            if 'conversion_rate' not in df.columns:
+                df['conversion_rate'] = (df['conversions'] / df['clicks'] * 100).round(2)
+                df['conversion_rate'] = df['conversion_rate'].replace([np.inf, -np.inf], 0)
+            
+            if 'roas' not in df.columns:
+                df['roas'] = (df['revenue'] / df['spend']).round(2)
+                df['roas'] = df['roas'].replace([np.inf, -np.inf], 0)
+            
+            if 'cpa' not in df.columns:
+                df['cpa'] = (df['spend'] / df['conversions']).round(2)
+                df['cpa'] = df['cpa'].replace([np.inf, -np.inf], 0)
+            
+            # Sort by date
+            df = df.sort_values('date').reset_index(drop=True)
+            
+            # Store the processed data
+            self.historical_data = df
+            
+            st.success(f"✅ Successfully loaded {len(df)} rows of Meta Ads data!")
+            st.info(f"Date range: {df['date'].min().strftime('%Y-%m-%d')} to {df['date'].max().strftime('%Y-%m-%d')}")
+            
+            return True
+            
+        except Exception as e:
+            st.error(f"Error loading CSV file: {str(e)}")
+            return False
+    
     def initialize_sample_data(self):
         """Generate realistic Meta Ads sample data"""
         np.random.seed(42)
@@ -383,15 +439,10 @@ class AIAssistant:
         return scaling_recs
 
 # Initialize classes
-@st.cache_resource
-def initialize_projector():
-    return MetaAdsProjector()
-
 @st.cache_resource 
 def initialize_ai_assistant():
     return AIAssistant()
 
-projector = initialize_projector()
 ai_assistant = initialize_ai_assistant()
 
 # Main App
